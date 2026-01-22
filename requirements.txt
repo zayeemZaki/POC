@@ -1,0 +1,7 @@
+fastapi
+uvicorn
+sqlmodel
+chromadb
+pandas
+sentence-transformers
+python-multipart
