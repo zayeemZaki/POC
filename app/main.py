@@ -1,6 +1,7 @@
+import subprocess
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from sqlmodel import Session
+from sqlmodel import Session, select
 from app.database import Claim, create_db_and_tables, engine
 from app.agents.clinical import clinical_agent
 
@@ -19,6 +20,20 @@ app.add_middleware(
 def on_startup():
     create_db_and_tables()
 
+    # Check if DB is empty
+    with Session(engine) as session:
+        existing_claim = session.exec(select(Claim)).first()
+
+        if not existing_claim:
+            print("Database is empty. Starting Auto-Ingestion...")
+            try:
+                subprocess.run(["python", "scripts/ingest.py"], check=True)
+                print("Auto-Ingestion Complete.")
+            except Exception as e:
+                print(f"Auto-Ingestion Failed: {e}")
+        else:
+            print("Database already has data. Skipping ingestion.")
+
 @app.get("/")
 def read_root():
     return {"status": "System Online", "message": "Agents are ready."}
@@ -27,7 +42,6 @@ def read_root():
 def get_all_claims():
     """Return all claims."""
     with Session(engine) as session:
-        from sqlmodel import select
         statement = select(Claim)
         claims = session.exec(statement).all()
         return claims
