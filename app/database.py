@@ -1,6 +1,9 @@
 import os
 from typing import Optional
+from dotenv import load_dotenv
 from sqlmodel import Field, Session, SQLModel, create_engine, select
+
+load_dotenv()
 
 # "Claim" Model - matches the full CSV structure
 class Claim(SQLModel, table=True):
@@ -38,15 +41,14 @@ class Claim(SQLModel, table=True):
     patient_gender: Optional[str] = None
     status: str = Field(default="Pending")
 
-# Database Setup
-if os.getenv("RAILWAY_VOLUME_MOUNT_PATH"):
-    sqlite_file_name = f"{os.getenv('RAILWAY_VOLUME_MOUNT_PATH')}/claims.db"
-else:
-    sqlite_file_name = "claims.db"
-    
-sqlite_url = f"sqlite:///{sqlite_file_name}"
+# Database Setup — Supabase PostgreSQL
+database_url = os.getenv("DATABASE_URL", "")
 
-engine = create_engine(sqlite_url, echo=False)
+# Some providers (Heroku, Supabase) may return postgres:// which SQLAlchemy 2.x rejects.
+if database_url.startswith("postgres://"):
+    database_url = database_url.replace("postgres://", "postgresql://", 1)
+
+engine = create_engine(database_url, echo=False)
 
 def create_db_and_tables():
     SQLModel.metadata.create_all(engine)

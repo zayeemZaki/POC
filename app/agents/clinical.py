@@ -6,19 +6,14 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-import chromadb
-from chromadb.utils import embedding_functions
+import vecs
+from sentence_transformers import SentenceTransformer
 from sqlmodel import Session, select
 from langchain_openai import AzureChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from app.database import Claim, engine
 
 # --- CONFIG ---
-# If running on Railway, use the persistent volume path
-if os.getenv("RAILWAY_VOLUME_MOUNT_PATH"):
-    CHROMA_PATH = f"{os.getenv('RAILWAY_VOLUME_MOUNT_PATH')}/chroma_db"
-else:
-    CHROMA_PATH = "chroma_db"
 TIMELY_FILING_DAYS = 90
 HIGH_VALUE_THRESHOLD = 1000
 SEMANTIC_RELEVANCE_THRESHOLD = 0.45  # max distance to consider a semantic match useful
@@ -40,16 +35,23 @@ PEDIATRIC_ONLY_KEYWORDS = ["pediatric", "well-baby", "vaccine (pediatric)"]
 
 class ClinicalAgent:
     def __init__(self):
-        # 1. Setup Vector DB Connection
-        self.ef = embedding_functions.SentenceTransformerEmbeddingFunction(model_name="all-MiniLM-L6-v2")
-        self.client = chromadb.PersistentClient(path=CHROMA_PATH)
+        # 1. Setup Embedding Model
+        self.embed_model = SentenceTransformer("all-MiniLM-L6-v2")
+
+        # 2. Setup Vector DB Connection (Supabase via vecs)
+        db_url = os.getenv("DATABASE_URL", "")
         try:
-            self.collection = self.client.get_collection(name="payer_policies", embedding_function=self.ef)
+            self.vx = vecs.create_client(db_url)
+            self.collection = self.vx.get_or_create_collection(
+                name="payer_policies",
+                dimension=384,  # all-MiniLM-L6-v2 output dimension
+            )
         except Exception:
-            print("⚠️ Database empty. Run ingest.py!")
+            print("Warning: Vector DB not available. Run ingest.py!")
+            self.vx = None
             self.collection = None
 
-        # 2. Setup LLM (Azure OpenAI GPT-5 Reasoning Model)
+        # 3. Setup LLM (Azure OpenAI GPT-5 Reasoning Model)
         self.llm = AzureChatOpenAI(
             azure_deployment=os.getenv("AZURE_DEPLOYMENT_NAME"),
             api_version=os.getenv("AZURE_OPENAI_API_VERSION"),
@@ -298,16 +300,23 @@ Transcription (excerpt):
         """
         Attempt to find a matching payer policy. Returns (policy_text, source).
 
-        Tier 1 — Exact ID lookup in ChromaDB.
+        Tier 1 — Exact ID lookup in vecs collection.
         Tier 2 — Semantic search using the claim's clinical context.
         Tier 3 — Returns None (caller falls back to policy-free audit).
         """
+        if not self.collection:
+            return None, "none"
+
         # Tier 1: Exact ID match
         if claim.policy_id:
             try:
-                result = self.collection.get(ids=[claim.policy_id])
-                if result["documents"] and result["documents"][0]:
-                    return result["documents"][0], "exact_match"
+                records = self.collection.fetch(ids=[claim.policy_id])
+                if records:
+                    # fetch returns [(id, vector, metadata), ...]
+                    metadata = records[0][2] if len(records[0]) > 2 else {}
+                    policy_text = metadata.get("text")
+                    if policy_text:
+                        return policy_text, "exact_match"
             except Exception:
                 pass  # ID not found — continue to Tier 2
 
@@ -320,12 +329,18 @@ Transcription (excerpt):
         ] if p]
         if query_parts:
             query_text = " | ".join(query_parts)
-            results = self.collection.query(query_texts=[query_text], n_results=1)
-            if results["documents"] and results["documents"][0]:
-                distance = results["distances"][0][0] if results.get("distances") else 999
+            query_vector = self.embed_model.encode(query_text).tolist()
+            results = self.collection.query(
+                data=query_vector,
+                limit=1,
+                include_value=True,
+                include_metadata=True,
+            )
+            if results:
+                # query returns [(id, distance, metadata), ...]
+                matched_id, distance, metadata = results[0]
                 if distance <= SEMANTIC_RELEVANCE_THRESHOLD:
-                    matched_id = results["ids"][0][0] if results.get("ids") else "unknown"
-                    policy_text = results["documents"][0][0]
+                    policy_text = metadata.get("text", "")
                     return policy_text, f"semantic_match ({matched_id}, dist={distance:.2f})"
 
         # Tier 3: No policy found

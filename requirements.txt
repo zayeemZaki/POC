@@ -4,7 +4,9 @@ torchvision
 fastapi
 uvicorn
 sqlmodel
-chromadb
+psycopg2-binary
+vecs
+supabase
 pandas
 sentence-transformers
 python-multipart
