@@ -43,7 +43,11 @@ class ClinicalAgent:
         # 1. Setup Vector DB Connection
         self.ef = embedding_functions.SentenceTransformerEmbeddingFunction(model_name="all-MiniLM-L6-v2")
         self.client = chromadb.PersistentClient(path=CHROMA_PATH)
-        self.collection = self.client.get_collection(name="payer_policies", embedding_function=self.ef)
+        try:
+            self.collection = self.client.get_collection(name="payer_policies", embedding_function=self.ef)
+        except Exception:
+            print("⚠️ Database empty. Run ingest.py!")
+            self.collection = None
 
         # 2. Setup LLM (Azure OpenAI GPT-5 Reasoning Model)
         self.llm = AzureChatOpenAI(
