@@ -15,8 +15,6 @@ venv/
 # ChromaDB vector store
 chroma_db/
 
-# Data files
-data/
 
 # Claude
 .claude/
