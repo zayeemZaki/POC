@@ -11,7 +11,11 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from app.database import Claim, create_db_and_tables, engine
 
 CSV_PATH = "data/poc_dataset.csv"
-CHROMA_PATH = "chroma_db"
+# If running on Railway, use the persistent volume path
+if os.getenv("RAILWAY_VOLUME_MOUNT_PATH"):
+    CHROMA_PATH = f"{os.getenv('RAILWAY_VOLUME_MOUNT_PATH')}/chroma_db"
+else:
+    CHROMA_PATH = "chroma_db"
 
 MOCK_POLICIES = [
     {
@@ -81,16 +85,52 @@ def ingest_data():
             print("Database already has data. Skipping SQL ingestion.")
         else:
             print(f"Importing {len(df)} rows into SQLite...")
+
+            def safe_str(val):
+                """Convert value to string, returning None for NaN/missing."""
+                if pd.isnull(val):
+                    return None
+                return str(val)
+
+            def safe_float(val):
+                """Convert value to float, returning None for NaN/missing."""
+                if pd.isnull(val):
+                    return None
+                return float(val)
+
             for _, row in df.iterrows():
                 claim = Claim(
                     patient_id=str(row.get("patient_id")),
-                    description=str(row.get("description")),
-                    transcription=str(row.get("transcription")),
-                    cpt_code=str(row.get("cpt_code")),
-                    denial_code=str(row.get("denial_code")),
-                    payer_name=str(row.get("payer_name")),
-                    policy_id=str(row.get("policy_id", "")),
-                    claim_amount=float(row.get("claim_amount", 0.0)) if pd.notnull(row.get("claim_amount")) else 0.0
+                    description=str(row.get("description", "")),
+                    medical_specialty=safe_str(row.get("medical_specialty")),
+                    sample_name=safe_str(row.get("sample_name")),
+                    transcription=safe_str(row.get("transcription")),
+                    keywords=safe_str(row.get("keywords")),
+                    cpt_code=str(row.get("cpt_code", "")),
+                    cpt_description=safe_str(row.get("cpt_description")),
+                    cpt_modifier=safe_str(row.get("cpt_modifier")),
+                    icd_code=safe_str(row.get("icd_code")),
+                    icd_description=safe_str(row.get("icd_description")),
+                    bill_type=safe_str(row.get("bill_type")),
+                    provider_specialty=safe_str(row.get("provider_specialty")),
+                    denial_code=safe_str(row.get("denial_code")),
+                    denial_reason=safe_str(row.get("denial_reason")),
+                    member_id=safe_str(row.get("member_id")),
+                    payer_name=safe_str(row.get("payer_name")),
+                    plan_type=safe_str(row.get("plan_type")),
+                    policy_id=safe_str(row.get("policy_id")),
+                    claim_number=safe_str(row.get("claim_number")),
+                    group_number=safe_str(row.get("group_number")),
+                    provider_npi=safe_str(row.get("provider_npi")),
+                    facility_name=safe_str(row.get("facility_name")),
+                    place_of_service=safe_str(row.get("place_of_service")),
+                    date_of_service=safe_str(row.get("date_of_service")),
+                    date_of_submission=safe_str(row.get("date_of_submission")),
+                    date_of_denial=safe_str(row.get("date_of_denial")),
+                    prior_auth_number=safe_str(row.get("prior_auth_number")),
+                    claim_amount=safe_float(row.get("claim_amount")),
+                    patient_dob=safe_str(row.get("patient_dob")),
+                    patient_gender=safe_str(row.get("patient_gender")),
                 )
                 session.add(claim)
             session.commit()

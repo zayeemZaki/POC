@@ -5,3 +5,10 @@ chromadb
 pandas
 sentence-transformers
 python-multipart
+pydantic-settings
+openai
+langchain
+langchain-community
+langchain-openai
+python-dotenv
+requests
