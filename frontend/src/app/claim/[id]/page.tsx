@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 
-const API = "http://localhost:8000";
+const API = process.env.NEXT_PUBLIC_API_URL;
 
 interface Claim {
   id: number;
